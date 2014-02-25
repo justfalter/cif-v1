@@ -6,54 +6,27 @@ use CIF::Router::Constants;
 use CIF::Router::ServiceRole;
 use CIF::Router::AuthenticatedRole;
 use CIF::Router::DataSubmissionRole;
-use CIF::Router::IndexerRole;
-use Try::Tiny;
 use CIF qw/debug/;
 use Mouse;
 with 'CIF::Router::ServiceRole', 
      'CIF::Router::AuthenticatedRole', 
-     'CIF::Router::DataSubmissionRole',
-     'CIF::Router::IndexerRole' ;
+     'CIF::Router::DataSubmissionRole';
 
 use namespace::autoclean;
 
 sub service_type { CIF::Router::Constants::SVC_SUBMISSION }
 
-# Should return 1 or 0
-sub queue_should_autodelete {
-  return 0;
+sub decode_payload {
+  return $_[0]->codec->decode_submission($_[1]);
 }
 
-# Should return 1 or 0
-sub queue_is_durable {
-  return 1;
-}
-
-sub BUILD {
+sub do_work {
   my $self = shift;
-  $self->datastore->add_flush_callback(sub {
-      my $submissions = shift;
-      $self->indexer->index_array($submissions);
-    });
-}
-
-sub process {
-  my $self = shift;
-  my $payload = shift;
-  my $content_type = shift;
-  my ($err, $submission);
-  try {
-    $submission = $self->codec->decode_submission($payload);
-  } catch {
-    $err = shift;
-  };
-  if ($err) {
-    die("Error while trying to decode submission: $err");
-  }
+  my $submission = shift;
 
   if ($submission->has_datastore_id()) {
     # TODO : Something smarter here?
-    return(0, "submission_response", $self->codec->content_type(), 0);
+    return 0;
   }
 
   my $group = $submission->event->group();
@@ -64,9 +37,18 @@ sub process {
     die("apikey '$apikey' is not authorized to write for group '$group'");
   }
 
-  my $results = $self->datastore->submit($submission);
+  return $self->datastore->submit($submission);
+}
 
-  return($results, "submission_response", $self->codec->content_type(), 0);
+sub encode_response {
+  my $self = shift;
+  my $results = shift;
+  return $results;
+}
+
+use constant RESPONSE_TYPE => "submission_response";
+sub response_type {
+  return RESPONSE_TYPE;
 }
 
 __PACKAGE__->meta->make_immutable();

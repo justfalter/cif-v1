@@ -5,7 +5,6 @@ use warnings;
 use CIF::Router::ServiceRole;
 use CIF::Router::AuthenticatedRole;
 use CIF::Router::Constants;
-use Try::Tiny;
 use CIF qw/debug/;
 use Mouse;
 with 'CIF::Router::ServiceRole', 
@@ -17,29 +16,13 @@ use namespace::autoclean;
 
 sub service_type { CIF::Router::Constants::SVC_QUERY }
 
-# Should return 1 or 0
-sub queue_should_autodelete {
-  return 1;
+sub decode_payload {
+  return $_[0]->codec->decode_query($_[1]);
 }
 
-# Should return 1 or 0
-sub queue_is_durable {
-  return 0;
-}
-
-sub process {
+sub do_work {
   my $self = shift;
-  my $payload = shift;
-  my $content_type = shift;
-  my ($query, $results, $encoded_results, $err);
-  try {
-    $query = $self->codec->decode_query($payload);
-  } catch {
-    $err = shift;
-  };
-  if ($err) {
-    die("Error while trying to decode query: $err");
-  }
+  my $query = shift;
 
   my $apikey_info = $self->auth->authorized_read(
     $query->apikey, $query->group());
@@ -48,24 +31,18 @@ sub process {
     $query->group($apikey_info->{'default_group'});
   }
 
-  try {
-    $results = $self->query_handler->search($query);
-  } catch {
-    $err = shift;
-  };
-  if ($err) {
-    die("Error while trying to process query: $err");
-  }
+  return $self->query_handler->search($query);
+}
 
-  try {
-    $encoded_results = $self->codec->encode_query_results($results);
-  } catch {
-    $err = shift;
-  };
-  if ($err) {
-    die("Error while trying to encode query results: $err");
-  }
-  return($encoded_results, "query_response", $self->codec->content_type(), 0);
+sub encode_response {
+  my $self = shift;
+  my $results = shift;
+  return $self->codec->encode_query_results($results);
+}
+
+use constant RESPONSE_TYPE => "query_response";
+sub response_type {
+  return RESPONSE_TYPE;
 }
 
 __PACKAGE__->meta->make_immutable();
